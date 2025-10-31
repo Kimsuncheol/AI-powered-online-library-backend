@@ -14,6 +14,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is required; check your .env or shell environment")
 
+
 engine = create_engine(DATABASE_URL, echo=False, future=True)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)

@@ -19,6 +19,7 @@ class BookBase(BaseModel):
     published_at: Optional[date] = Field(default=None, alias="publishedAt")
     tags: Optional[list[str]] = None
     ai_summary: Optional[str] = Field(default=None, alias="aiSummary")
+    available_copies: Optional[int] = Field(default=None, alias="availableCopies")
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -27,6 +28,13 @@ class BookBase(BaseModel):
     def validate_page_count(cls, value: Optional[int]) -> Optional[int]:
         if value is not None and value <= 0:
             raise ValueError("pageCount must be a positive integer")
+        return value
+
+    @field_validator("available_copies")
+    @classmethod
+    def validate_available_copies(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("availableCopies cannot be negative")
         return value
 
 
@@ -47,6 +55,7 @@ class BookUpdate(BaseModel):
     published_at: Optional[date] = Field(default=None, alias="publishedAt")
     tags: Optional[list[str]] = None
     ai_summary: Optional[str] = Field(default=None, alias="aiSummary")
+    available_copies: Optional[int] = Field(default=None, alias="availableCopies")
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
@@ -57,11 +66,19 @@ class BookUpdate(BaseModel):
             raise ValueError("pageCount must be a positive integer")
         return value
 
+    @field_validator("available_copies")
+    @classmethod
+    def validate_available_copies(cls, value: Optional[int]) -> Optional[int]:
+        if value is not None and value < 0:
+            raise ValueError("availableCopies cannot be negative")
+        return value
+
 
 class BookOut(BookBase):
     id: str
     created_at: datetime = Field(alias="createdAt")
     updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
+    available_copies: int = Field(alias="availableCopies")
 
     model_config = ConfigDict(
         populate_by_name=True,

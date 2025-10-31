@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
 from app.db.session import get_session
 from app.main import app
 from app.models.member import Base
 from app.security.hash import hash_password, verify_password
-from app.security.jwt import JWTSettings, TokenType, decode_token, get_jwt_settings
+from app.core.settings import SessionSettings, get_session_settings
 
 
 @pytest.fixture(scope="session")
@@ -48,23 +43,27 @@ def client(engine):
         finally:
             db.close()
 
-    test_settings = JWTSettings(
-        secret_key="test-secret",
-        algorithm="HS256",
-        access_token_exp_minutes=60,
-        refresh_token_exp_minutes=60 * 24,
-        issuer="test-suite",
-        audience=None,
-    )
-
     app.dependency_overrides[get_session] = _override_get_session
-    app.dependency_overrides[get_jwt_settings] = lambda: test_settings
+    get_session_settings.cache_clear()
+    test_settings = SessionSettings(
+        idle_timeout_minutes=30,
+        absolute_timeout_hours=24,
+        cookie_name="session_id",
+        cookie_secure=False,
+        cookie_samesite="lax",
+        cookie_domain=None,
+        cookie_path="/",
+        cookie_max_age_seconds=None,
+        send_idle_remaining_header=True,
+    )
+    app.dependency_overrides[get_session_settings] = lambda: test_settings
 
     with TestClient(app) as test_client:
-        setattr(test_client, "jwt_settings", test_settings)
+        setattr(test_client, "session_settings", test_settings)
         yield test_client
 
     app.dependency_overrides.clear()
+    get_session_settings.cache_clear()
 
 
 def test_password_hashing_roundtrip():
@@ -120,7 +119,7 @@ def test_signup_rejects_weak_password(client: TestClient):
     assert response.status_code == 422
 
 
-def test_signin_and_token_decode(client: TestClient):
+def test_signin_sets_cookie_and_authorizes_me(client: TestClient):
     payload = {
         "email": "decode@example.com",
         "displayName": "Decoder",
@@ -135,12 +134,15 @@ def test_signin_and_token_decode(client: TestClient):
     assert response.status_code == 200
     body = response.json()
 
-    assert body["accessToken"]
-    token_payload = decode_token(body["accessToken"], client.jwt_settings)
-    assert token_payload.token_type == TokenType.ACCESS
-    assert token_payload.role == "user"
+    assert body["member"]["email"] == payload["email"]
+    assert response.cookies.get(client.session_settings.cookie_name)
 
-    headers = {"Authorization": f"Bearer {body['accessToken']}"}
-    me_response = client.get("/auth/me", headers=headers)
+    me_response = client.get("/auth/me")
     assert me_response.status_code == 200
     assert me_response.json()["email"] == payload["email"]
+
+
+def test_me_requires_session_cookie(client: TestClient):
+    response = client.get("/auth/me")
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "not_authenticated"

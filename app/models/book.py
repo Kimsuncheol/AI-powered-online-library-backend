@@ -32,6 +32,12 @@ class Book(Base):
     published_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     tags: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
     ai_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    available_copies: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

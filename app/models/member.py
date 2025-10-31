@@ -3,10 +3,13 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import DateTime, Enum as SAEnum, String, Text, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from app.models.session import Session
 
 
 class Base(DeclarativeBase):
@@ -58,6 +61,11 @@ class Member(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+    sessions: Mapped[list["Session"]] = relationship(
+        "Session",
+        back_populates="member",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper

@@ -8,9 +8,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.session import engine
 from app.models import Base
 from app.routers.admin_members import router as admin_members_router
+from app.routers.activity import router as activity_router
 from app.routers.auth import router as auth_router
-from app.routers.profile import router as profile_router
 from app.routers.books import router as books_router
+from app.routers.checkouts import router as checkouts_router
+from app.routers.profile import router as profile_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,4 +39,6 @@ def read_root():
 app.include_router(auth_router)
 app.include_router(profile_router)
 app.include_router(books_router)
+app.include_router(checkouts_router)
 app.include_router(admin_members_router)
+app.include_router(activity_router)

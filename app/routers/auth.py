@@ -1,36 +1,24 @@
 from __future__ import annotations
 
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
 
 from app.models.member import Member
 from app.schemas.member import MemberCreate, MemberLogin, MemberOut, member_to_schema
-from app.services.auth_service import AuthResult, AuthService, get_auth_service
+from app.core.settings import SessionSettings, get_session_settings
+from app.security.session import require_session
+from app.services.auth_service import AuthService, get_auth_service
+from app.services.session_service import SessionService, get_session_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-bearer_scheme = HTTPBearer(auto_error=False)
 
-
-def get_current_member(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    service: AuthService = Depends(get_auth_service),
-) -> Member:
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "not_authenticated", "message": "Authentication required."},
-        )
-    return service.get_current_member(credentials.credentials)
+def get_current_member(member: Member = Depends(require_session)) -> Member:
+    return member
 
 
 class SignInResponse(BaseModel):
     member: MemberOut
-    access_token: str = Field(alias="accessToken")
-    refresh_token: Optional[str] = Field(default=None, alias="refreshToken")
 
     model_config = {"populate_by_name": True}
 
@@ -50,14 +38,32 @@ def signup(payload: MemberCreate, service: AuthService = Depends(get_auth_servic
     status_code=status.HTTP_200_OK,
     response_model=SignInResponse,
 )
-def signin(payload: MemberLogin, service: AuthService = Depends(get_auth_service)) -> SignInResponse:
-    """Authenticate a member and return tokens."""
-    result: AuthResult = service.authenticate(email=payload.email, password=payload.password)
-    return SignInResponse(
-        member=result.member,
-        access_token=result.tokens.access_token,
-        refresh_token=result.tokens.refresh_token,
+def signin(
+    payload: MemberLogin,
+    request: Request,
+    response: Response,
+    service: AuthService = Depends(get_auth_service),
+    session_service: SessionService = Depends(get_session_service),
+    settings: SessionSettings = Depends(get_session_settings),
+) -> SignInResponse:
+    """Authenticate a member, create a session, and return profile data."""
+    member = service.authenticate(email=payload.email, password=payload.password)
+    session = session_service.create_session(
+        member=member,
+        user_agent=request.headers.get("user-agent"),
+        ip_addr=request.client.host if request.client else None,
     )
+    response.set_cookie(
+        key=settings.cookie_name,
+        value=session.id,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        max_age=settings.cookie_max_age_seconds,
+        domain=settings.cookie_domain,
+        path=settings.cookie_path,
+    )
+    return SignInResponse(member=member_to_schema(member))
 
 
 @router.get("/me", response_model=MemberOut)
@@ -67,6 +73,26 @@ def read_current_member(current_member: Member = Depends(get_current_member)) ->
 
 
 @router.post("/signout", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def signout() -> Response:
-    """Stateless sign-out endpoint placeholder."""
+def signout(
+    request: Request,
+    response: Response,
+    session_service: SessionService = Depends(get_session_service),
+    settings: SessionSettings = Depends(get_session_settings),
+    current_member: Member = Depends(get_current_member),
+) -> Response:
+    """Revoke the active session and clear the session cookie."""
+    session_id = request.cookies.get(settings.cookie_name)
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "no_session_cookie", "message": "Session cookie is missing."},
+        )
+
+    session_service.revoke_session(session_id)
+    _ = current_member  # dependency ensures an active session existed
+    response.delete_cookie(
+        key=settings.cookie_name,
+        domain=settings.cookie_domain,
+        path=settings.cookie_path,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
