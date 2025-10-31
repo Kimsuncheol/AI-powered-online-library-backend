@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.crud.member import get_member_by_email
 from app.db.session import get_session
 from app.models.member import Member, MemberRole
 from app.schemas.member import (
@@ -42,9 +42,7 @@ class AuthService:
         self.settings = settings
 
     def register_member(self, data: MemberCreate) -> MemberOut:
-        existing_member = self.session.execute(
-            select(Member).where(Member.email == data.email)
-        ).scalar_one_or_none()
+        existing_member = get_member_by_email(data.email, self.session)
         if existing_member:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -62,9 +60,13 @@ class AuthService:
         return member_to_schema(member)
 
     def authenticate(self, email: str, password: str) -> AuthResult:
-        member = self.session.execute(
-            select(Member).where(Member.email == email)
-        ).scalar_one_or_none()
+        try:
+            member = get_member_by_email(email, self.session)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "invalid_email", "message": "Invalid email address."},
+            ) from exc
 
         if not member or not verify_password(password, member.password_hash):
             raise HTTPException(
