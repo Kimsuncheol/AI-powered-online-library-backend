@@ -79,7 +79,7 @@ def test_signup_and_duplicate_email(client: TestClient):
     payload = {
         "email": "user@example.com",
         "displayName": "Example User",
-        "password": "strongpassword123",
+        "password": "Str0ngPassword!",
         "role": "admin",
     }
     response = client.post("/auth/signup", json=payload)
@@ -98,23 +98,33 @@ def test_signin_wrong_password(client: TestClient):
     payload = {
         "email": "test@example.com",
         "displayName": "Tester",
-        "password": "correct-password",
+        "password": "CorrectPass1!",
     }
     client.post("/auth/signup", json=payload)
 
     response = client.post(
         "/auth/signin",
-        json={"email": payload["email"], "password": "wrong-password"},
+        json={"email": payload["email"], "password": "WrongPass1!"},
     )
     assert response.status_code == 401
     assert response.json()["detail"]["code"] == "invalid_credentials"
+
+
+def test_signup_rejects_weak_password(client: TestClient):
+    payload = {
+        "email": "weak@example.com",
+        "displayName": "Weak User",
+        "password": "weakpass",
+    }
+    response = client.post("/auth/signup", json=payload)
+    assert response.status_code == 422
 
 
 def test_signin_and_token_decode(client: TestClient):
     payload = {
         "email": "decode@example.com",
         "displayName": "Decoder",
-        "password": "decode-password",
+        "password": "DecodePass1!",
     }
     client.post("/auth/signup", json=payload)
 

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.member import Member, MemberRole
 
@@ -36,6 +37,18 @@ class MemberCreate(MemberBase):
     password: str = Field(repr=False)
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, password: str) -> str:
+        """Enforce strong password requirements at the schema level."""
+        pattern = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*]).{8,}$")
+        if not pattern.match(password):
+            raise ValueError(
+                "Password must be at least 8 characters long and include upper and lowercase "
+                "letters, a number, and a special character."
+            )
+        return password
 
 
 class MemberLogin(BaseModel):
