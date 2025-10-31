@@ -63,6 +63,7 @@ class MemberUpdate(BaseModel):
     avatar_url: Optional[str] = Field(default=None, alias="avatarUrl")
     bio: Optional[str] = None
     location: Optional[str] = None
+    role: Optional[MemberRole] = None
 
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
