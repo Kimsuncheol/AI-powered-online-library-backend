@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from app.schemas.member import MemberOut
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 CheckoutStatusLiteral = Literal["checked_out", "returned", "overdue", "lost", "cancelled"]
 
@@ -50,6 +49,20 @@ class BookLite(BaseModel):
     title: str
     author: str
     cover_image_url: Optional[str] = Field(default=None, alias="coverImageUrl")
+    isbn: Optional[str] = None
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        from_attributes=True,
+        extra="forbid",
+    )
+
+
+class MemberLite(BaseModel):
+    id: str
+    email: EmailStr
+    display_name: str = Field(alias="displayName")
+    avatar_url: Optional[str] = Field(default=None, alias="avatarUrl")
 
     model_config = ConfigDict(
         populate_by_name=True,
@@ -70,7 +83,7 @@ class CheckoutOut(BaseModel):
     created_at: datetime = Field(alias="createdAt")
     updated_at: Optional[datetime] = Field(default=None, alias="updatedAt")
     book: Optional[BookLite] = None
-    member: Optional[MemberOut] = None
+    member: Optional[MemberLite] = None
 
     model_config = ConfigDict(
         populate_by_name=True,

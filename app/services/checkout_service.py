@@ -21,6 +21,9 @@ class CheckoutService:
     """Business logic layer for managing book checkouts."""
 
     DAYS_DEFAULT = 14
+    MAX_EXTENSION_DAYS = 14
+    MAX_RENEWALS = 2
+    EXTEND_BLOCK_IF_OVERDUE = True
 
     def __init__(self, db: Session):
         self.db = db
@@ -209,6 +212,7 @@ class CheckoutService:
                 Book.title,
                 Book.author,
                 Book.cover_image_url,
+                Book.isbn,
             ),
             joinedload(Checkout.member),
         )
@@ -270,25 +274,39 @@ class CheckoutService:
         now = self._now()
         action = payload.action
 
-        if action == "return":
-            if checkout.status not in ACTIVE_STATUSES:
+        def _ensure_active(checkout_obj: Checkout) -> None:
+            if checkout_obj.status not in ACTIVE_STATUSES:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Checkout is not active and cannot be returned.",
+                    detail="Checkout is not active.",
                 )
+
+        if action == "return":
+            _ensure_active(checkout)
             checkout.status = CheckoutStatus.RETURNED
             checkout.returned_at = now
             self._adjust_book_copies(book, 1)
         elif action == "extend":
-            if checkout.status not in ACTIVE_STATUSES:
+            _ensure_active(checkout)
+            if self.EXTEND_BLOCK_IF_OVERDUE and checkout.status == CheckoutStatus.OVERDUE:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Only active checkouts can be extended.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Overdue checkouts cannot be extended.",
+                )
+            if checkout.due_at < now and self.EXTEND_BLOCK_IF_OVERDUE:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Overdue checkouts cannot be extended.",
                 )
             baseline = checkout.due_at
             if baseline < now:
                 baseline = now
             if payload.days is not None:
+                if payload.days > self.MAX_EXTENSION_DAYS:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Extension exceeds maximum allowed days.",
+                    )
                 new_due = baseline + timedelta(days=payload.days)
             else:
                 new_due = self._normalize_datetime(payload.new_due_at, "newDueAt")
@@ -296,6 +314,19 @@ class CheckoutService:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="New due date must be later than the current due date.",
+                )
+            extension_delta = new_due - baseline
+            if extension_delta > timedelta(days=self.MAX_EXTENSION_DAYS):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Extension exceeds maximum allowed days.",
+                )
+            total_loan_span = new_due - checkout.checked_out_at
+            allowed_span = timedelta(days=self.DAYS_DEFAULT + self.MAX_EXTENSION_DAYS * self.MAX_RENEWALS)
+            if total_loan_span > allowed_span:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Loan has reached the maximum number of renewals.",
                 )
             checkout.due_at = new_due
             if checkout.status == CheckoutStatus.OVERDUE and new_due > now:

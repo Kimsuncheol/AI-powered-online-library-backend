@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.session import engine
 from app.models import Base
+from app.routers.admin_loans import router as admin_loans_router
 from app.routers.admin_members import router as admin_members_router
 from app.routers.activity import router as activity_router
 from app.routers.auth import router as auth_router
@@ -41,4 +42,5 @@ app.include_router(profile_router)
 app.include_router(books_router)
 app.include_router(checkouts_router)
 app.include_router(admin_members_router)
+app.include_router(admin_loans_router)
 app.include_router(activity_router)
