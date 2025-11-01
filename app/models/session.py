@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.member import Base, Member
@@ -15,6 +15,13 @@ class Session(Base):
     __tablename__ = "sessions"
     __table_args__ = (
         Index("ix_sessions_member_id_last_active_at", "member_id", "last_active_at"),
+        Index(
+            "uq_sessions_member_active",
+            "member_id",
+            unique=True,
+            sqlite_where=text("revoked = 0"),
+            postgresql_where=text("revoked = false"),
+        ),
     )
 
     id: Mapped[str] = mapped_column(
@@ -40,5 +47,6 @@ class Session(Base):
     user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ip_addr: Mapped[str | None] = mapped_column(String(64), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     member: Mapped[Member] = relationship("Member", back_populates="sessions")

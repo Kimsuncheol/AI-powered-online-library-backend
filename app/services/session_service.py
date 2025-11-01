@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as SASession
 
 from app.core.settings import SessionSettings, get_session_settings
@@ -27,17 +28,36 @@ class SessionService:
         ip_addr: Optional[str],
     ) -> SessionModel:
         now = datetime.now(timezone.utc)
-        session = SessionModel(
-            member_id=member.id,
-            user_agent=user_agent,
-            ip_addr=ip_addr,
-            created_at=now,
-            last_active_at=now,
-        )
-        self.db.add(session)
-        self.db.commit()
-        self.db.refresh(session)
-        return session
+        attempts = 0
+        while True:
+            attempts += 1
+            session = SessionModel(
+                member_id=member.id,
+                user_agent=user_agent,
+                ip_addr=ip_addr,
+                created_at=now,
+                last_active_at=now,
+            )
+            try:
+                with self.db.begin():
+                    (
+                        self.db.query(SessionModel)
+                        .filter(SessionModel.member_id == member.id, SessionModel.revoked.is_(False))
+                        .update(
+                            {"revoked": True, "revoked_at": now},
+                            synchronize_session=False,
+                        )
+                    )
+                    self.db.add(session)
+                    self.db.flush()
+            except IntegrityError:
+                self.db.rollback()
+                if attempts >= 2:
+                    raise
+                continue
+            else:
+                self.db.refresh(session)
+                return session
 
     def get_active_session(self, session_id: str) -> Optional[SessionModel]:
         session = self.db.get(SessionModel, session_id)
@@ -53,10 +73,11 @@ class SessionService:
         return True
 
     def revoke_all_for_member(self, member_id: str) -> int:
+        now = datetime.now(timezone.utc)
         updated = (
             self.db.query(SessionModel)
             .filter(SessionModel.member_id == member_id, SessionModel.revoked.is_(False))
-            .update({"revoked": True})
+            .update({"revoked": True, "revoked_at": now}, synchronize_session=False)
         )
         if updated:
             self.db.commit()
@@ -77,8 +98,14 @@ class SessionService:
 
     def mark_revoked(self, session: SessionModel) -> None:
         if session.revoked:
+            if session.revoked_at is None:
+                session.revoked_at = datetime.now(timezone.utc)
+                self.db.add(session)
+                self.db.commit()
             return
+        now = datetime.now(timezone.utc)
         session.revoked = True
+        session.revoked_at = now
         self.db.add(session)
         self.db.commit()
 

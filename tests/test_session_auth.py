@@ -110,6 +110,56 @@ def test_signin_sets_session_cookie_and_allows_access(client_fixture: ClientFixt
         assert len(sessions) == 1
 
 
+def test_new_signin_revokes_previous_session(client_fixture: ClientFixture) -> None:
+    with client_fixture.session_factory() as db:
+        member = _create_member(db, email="single@session.com", password="StrongPassword1!")
+
+    first_response = client_fixture.client.post(
+        "/auth/signin",
+        json={"email": "single@session.com", "password": "StrongPassword1!"},
+    )
+    assert first_response.status_code == 200
+    first_session_id = first_response.cookies.get(client_fixture.settings.cookie_name)
+    assert first_session_id is not None
+
+    second_response = client_fixture.client.post(
+        "/auth/signin",
+        json={"email": "single@session.com", "password": "StrongPassword1!"},
+    )
+    assert second_response.status_code == 200
+    second_session_id = second_response.cookies.get(client_fixture.settings.cookie_name)
+    assert second_session_id is not None
+    assert second_session_id != first_session_id
+
+    stale_response = client_fixture.client.get(
+        "/auth/me",
+        cookies={client_fixture.settings.cookie_name: first_session_id},
+    )
+    assert stale_response.status_code == 401
+    assert stale_response.json()["detail"]["code"] == "invalid_session"
+
+    active_response = client_fixture.client.get(
+        "/auth/me",
+        cookies={client_fixture.settings.cookie_name: second_session_id},
+    )
+    assert active_response.status_code == 200
+    assert active_response.json()["email"] == "single@session.com"
+
+    with client_fixture.session_factory() as db:
+        active_sessions = (
+            db.query(SessionModel)
+            .filter(SessionModel.member_id == member.id, SessionModel.revoked.is_(False))
+            .all()
+        )
+        assert len(active_sessions) == 1
+        revoked_sessions = (
+            db.query(SessionModel)
+            .filter(SessionModel.member_id == member.id, SessionModel.revoked.is_(True))
+            .all()
+        )
+        assert all(session.revoked_at is not None for session in revoked_sessions)
+
+
 def test_idle_timeout_revokes_session(client_fixture: ClientFixture) -> None:
     with client_fixture.session_factory() as db:
         member = _create_member(db, email="idle@test.com", password="StrongPassword1!")
